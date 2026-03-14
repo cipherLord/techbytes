@@ -2,40 +2,43 @@ import SwiftUI
 import CoreText
 
 enum AppFont {
-    static let familyName = "Space Grotesk"
+    static let familyName = "Basetica"
 
     static func register() {
         let fontNames = [
-            "SpaceGrotesk-Light",
-            "SpaceGrotesk-Regular",
-            "SpaceGrotesk-Medium",
-            "SpaceGrotesk-SemiBold",
-            "SpaceGrotesk-Bold"
+            "Basetica-Thin",
+            "Basetica-Light",
+            "Basetica-Regular",
+            "Basetica-Medium",
+            "Basetica-Bold",
+            "Basetica-Black"
         ]
         for name in fontNames {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else { continue }
-            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            if let url = Bundle.main.url(forResource: name, withExtension: "otf") ??
+                         Bundle.main.url(forResource: name, withExtension: "ttf") {
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            }
         }
     }
 
     static func light(_ size: CGFloat, relativeTo textStyle: Font.TextStyle = .body) -> Font {
-        .custom("SpaceGrotesk-Light", size: size, relativeTo: textStyle)
+        .custom("Basetica-Light", size: size, relativeTo: textStyle)
     }
 
     static func regular(_ size: CGFloat, relativeTo textStyle: Font.TextStyle = .body) -> Font {
-        .custom("SpaceGrotesk-Regular", size: size, relativeTo: textStyle)
+        .custom("Basetica-Regular", size: size, relativeTo: textStyle)
     }
 
     static func medium(_ size: CGFloat, relativeTo textStyle: Font.TextStyle = .body) -> Font {
-        .custom("SpaceGrotesk-Medium", size: size, relativeTo: textStyle)
+        .custom("Basetica-Medium", size: size, relativeTo: textStyle)
     }
 
     static func semiBold(_ size: CGFloat, relativeTo textStyle: Font.TextStyle = .body) -> Font {
-        .custom("SpaceGrotesk-SemiBold", size: size, relativeTo: textStyle)
+        .custom("Basetica-Bold", size: size, relativeTo: textStyle)
     }
 
     static func bold(_ size: CGFloat, relativeTo textStyle: Font.TextStyle = .body) -> Font {
-        .custom("SpaceGrotesk-Bold", size: size, relativeTo: textStyle)
+        .custom("Basetica-Black", size: size, relativeTo: textStyle)
     }
 }
 
