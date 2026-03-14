@@ -28,6 +28,8 @@ final class NetworkManager: Sendable {
     private let session: URLSession
     private let wikipediaRateLimiter = RateLimiter(maxRequestsPerHour: 400)
     private let hackerNewsRateLimiter = RateLimiter(maxRequestsPerHour: 1800)
+    private let lobstersRateLimiter = RateLimiter(maxRequestsPerHour: 1000)
+    private let techmemeRateLimiter = RateLimiter(maxRequestsPerHour: 1000)
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -52,6 +54,16 @@ final class NetworkManager: Sendable {
     func fetchHackerNews<T: Decodable>(_ url: URL, as type: T.Type, ignoreCache: Bool = false) async throws -> T {
         try await hackerNewsRateLimiter.acquire()
         return try await fetchWithRetry(url, as: type, ignoreCache: ignoreCache)
+    }
+
+    func fetchLobsters<T: Decodable>(_ url: URL, as type: T.Type, ignoreCache: Bool = false) async throws -> T {
+        try await lobstersRateLimiter.acquire()
+        return try await fetchWithRetry(url, as: type, ignoreCache: ignoreCache)
+    }
+
+    func fetchTechmemeRaw(_ url: URL, ignoreCache: Bool = false) async throws -> Data {
+        try await techmemeRateLimiter.acquire()
+        return try await fetchRawData(from: url, ignoreCache: ignoreCache)
     }
 
     private func fetchWithRetry<T: Decodable>(_ url: URL, as type: T.Type, maxRetries: Int = 2, ignoreCache: Bool = false) async throws -> T {

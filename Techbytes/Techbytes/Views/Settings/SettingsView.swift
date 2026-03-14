@@ -126,7 +126,7 @@ struct SettingsView: View {
                         .foregroundStyle(.liquidLava)
                 }
                 Spacer()
-                Text("Wikipedia, Hacker News")
+                Text("Wikipedia, Hacker News, Lobsters, Techmeme")
                     .font(.bodySmall)
                     .foregroundStyle(.dustyGrey)
             }

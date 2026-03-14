@@ -24,8 +24,26 @@ extension String {
             .replacingOccurrences(of: "&lt;", with: "<")
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&apos;", with: "'")
+            .decodingNumericHTMLEntities()
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated func decodingNumericHTMLEntities() -> String {
+        var result = self
+
+        for (pattern, radix) in [("&#(\\d+);", 10), ("&#x([0-9A-Fa-f]+);", 16)] {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let matches = regex.matches(in: result, range: NSRange(result.startIndex..., in: result))
+            for match in matches.reversed() {
+                guard let fullRange = Range(match.range, in: result),
+                      let valueRange = Range(match.range(at: 1), in: result),
+                      let scalar = UInt32(String(result[valueRange]), radix: radix),
+                      let unicode = Unicode.Scalar(scalar) else { continue }
+                result.replaceSubrange(fullRange, with: String(Character(unicode)))
+            }
+        }
+        return result
     }
 
     nonisolated var domainFromURL: String? {

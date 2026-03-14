@@ -33,16 +33,28 @@ struct ContentView: View {
             Tab(value: 0) {
                 WikipediaFeedView()
             } label: {
-                Label("Wikipedia", systemImage: "book.fill")
+                Label("Wikipedia", systemImage: "globe.americas.fill")
             }
 
             Tab(value: 1) {
                 HackerNewsFeedView()
             } label: {
-                Label("Hacker News", systemImage: "flame.fill")
+                Label("Hacker News", systemImage: "y.square.fill")
             }
 
             Tab(value: 2) {
+                LobstersFeedView()
+            } label: {
+                Label("Lobsters", systemImage: "chevron.left.forwardslash.chevron.right")
+            }
+
+            Tab(value: 3) {
+                TechmemeFeedView()
+            } label: {
+                Label("Techmeme", systemImage: "newspaper.fill")
+            }
+
+            Tab(value: 4) {
                 SettingsView()
             } label: {
                 Label("Settings", systemImage: "gearshape.fill")

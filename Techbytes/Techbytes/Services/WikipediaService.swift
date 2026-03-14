@@ -3,10 +3,27 @@ import Foundation
 struct WikiFeaturedResponse: Decodable, Sendable {
     let tfa: WikiArticleSummary?
     let mostread: WikiMostRead?
-    let onthisday: [WikiOnThisDay]?
+    let news: [WikiNewsItem]?
+    let image: WikiImageOfTheDay?
 
     struct WikiMostRead: Decodable, Sendable {
         let articles: [WikiArticleSummary]
+    }
+}
+
+struct WikiNewsItem: Decodable, Sendable {
+    let story: String?
+    let links: [WikiArticleSummary]?
+}
+
+struct WikiImageOfTheDay: Decodable, Sendable {
+    let title: String?
+    let thumbnail: WikiThumbnail?
+    let image: WikiThumbnail?
+    let description: WikiImageDescription?
+
+    struct WikiImageDescription: Decodable, Sendable {
+        let text: String?
     }
 }
 
@@ -46,12 +63,6 @@ struct WikiThumbnail: Decodable, Sendable {
     let height: Int
 }
 
-struct WikiOnThisDay: Decodable, Sendable {
-    let text: String?
-    let year: Int?
-    let pages: [WikiArticleSummary]?
-}
-
 struct WikiRandomResponse: Decodable, Sendable {
     let query: QueryResult
 
@@ -62,6 +73,25 @@ struct WikiRandomResponse: Decodable, Sendable {
     struct RandomPage: Decodable, Sendable {
         let id: Int
         let title: String
+    }
+}
+
+struct WikiSearchResponse: Decodable, Sendable {
+    let query: SearchQuery?
+    let `continue`: SearchContinue?
+
+    struct SearchQuery: Decodable, Sendable {
+        let search: [SearchResult]?
+    }
+
+    struct SearchResult: Decodable, Sendable {
+        let title: String
+        let pageid: Int
+        let snippet: String?
+    }
+
+    struct SearchContinue: Decodable, Sendable {
+        let sroffset: Int?
     }
 }
 
@@ -83,26 +113,6 @@ final class WikipediaService {
         return try await network.fetchWikipedia(url, as: WikiFeaturedResponse.self, ignoreCache: ignoreCache)
     }
 
-    func fetchOnThisDay(type: String = "all", date: Date = Date(), ignoreCache: Bool = false) async throws -> [WikiOnThisDay] {
-        let calendar = Calendar.current
-        let month = String(format: "%02d", calendar.component(.month, from: date))
-        let day = String(format: "%02d", calendar.component(.day, from: date))
-        guard let url = URL(string: "\(baseURL)/feed/onthisday/\(type)/\(month)/\(day)") else {
-            throw NetworkError.invalidURL
-        }
-        struct Response: Decodable {
-            let events: [WikiOnThisDay]?
-            let births: [WikiOnThisDay]?
-            let deaths: [WikiOnThisDay]?
-            let selected: [WikiOnThisDay]?
-        }
-        let response = try await network.fetchWikipedia(url, as: Response.self, ignoreCache: ignoreCache)
-        var results: [WikiOnThisDay] = []
-        if let selected = response.selected { results.append(contentsOf: selected.prefix(10)) }
-        if let events = response.events { results.append(contentsOf: events.prefix(5)) }
-        return results
-    }
-
     func fetchRandomArticles(count: Int = 8, ignoreCache: Bool = false) async throws -> [WikiArticleSummary] {
         guard let url = URL(string: "\(mediaWikiURL)?action=query&list=random&rnlimit=\(count)&rnnamespace=0&format=json") else {
             throw NetworkError.invalidURL
@@ -122,6 +132,33 @@ final class WikipediaService {
             }
             return summaries
         }
+    }
+
+    func searchArticles(query: String, limit: Int = 10, offset: Int = 0) async throws -> (summaries: [WikiArticleSummary], nextOffset: Int?) {
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        guard let url = URL(string: "\(mediaWikiURL)?action=query&list=search&srsearch=\(encoded)&srlimit=\(limit)&sroffset=\(offset)&format=json") else {
+            throw NetworkError.invalidURL
+        }
+        let searchResponse = try await network.fetchWikipedia(url, as: WikiSearchResponse.self, ignoreCache: true)
+        guard let results = searchResponse.query?.search, !results.isEmpty else {
+            return ([], nil)
+        }
+
+        let summaries = await withTaskGroup(of: (Int, WikiArticleSummary?).self, returning: [WikiArticleSummary].self) { group in
+            for (index, result) in results.enumerated() {
+                group.addTask {
+                    guard !Task.isCancelled else { return (index, nil) }
+                    return (index, try? await self.fetchArticleSummary(title: result.title))
+                }
+            }
+            var indexed: [(Int, WikiArticleSummary)] = []
+            for await (index, summary) in group {
+                if let summary { indexed.append((index, summary)) }
+            }
+            return indexed.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+
+        return (summaries, searchResponse.continue?.sroffset)
     }
 
     func fetchArticleSummary(title: String) async throws -> WikiArticleSummary {
@@ -162,23 +199,21 @@ final class WikipediaService {
         }
     }
 
-    nonisolated func toArticles(from events: [WikiOnThisDay]) -> [Article] {
-        events.compactMap { event in
-            guard let text = event.text else { return nil }
-            let yearStr = event.year.map { "\($0): " } ?? ""
-            let firstPage = event.pages?.first
-            let pageURL = firstPage?.contentUrls?.desktop?.page ?? ""
-            let id = "wiki-otd-\(event.year ?? 0)-\(text.prefix(30).hashValue)"
+    nonisolated func toArticles(from newsItems: [WikiNewsItem]) -> [Article] {
+        newsItems.compactMap { item in
+            guard let firstLink = item.links?.first,
+                  let title = firstLink.titles?.display ?? firstLink.titles?.normalized else { return nil }
+            let pageURL = firstLink.contentUrls?.desktop?.page ?? "https://en.wikipedia.org/wiki/\(title)"
             return Article(
-                id: id,
-                title: "\(yearStr)\(text)".strippingHTML,
-                summary: firstPage?.extract ?? text.strippingHTML,
+                id: "wiki-news-\(firstLink.pageid ?? title.hashValue)",
+                title: title.strippingHTML,
+                summary: item.story?.strippingHTML ?? firstLink.extract ?? "",
                 articleURL: pageURL,
-                imageURL: firstPage?.thumbnail?.source,
+                imageURL: firstLink.thumbnail?.source,
                 source: .wikipedia,
-                section: WikipediaSection.onThisDay.rawValue,
+                section: WikipediaSection.featured.rawValue,
                 publishDate: Date(),
-                topics: firstPage.flatMap { extractTopics(from: $0) } ?? []
+                topics: extractTopics(from: firstLink)
             )
         }
     }

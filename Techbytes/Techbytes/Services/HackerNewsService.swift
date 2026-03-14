@@ -23,12 +23,8 @@ final class HackerNewsService {
     func fetchStoryIDs(section: HackerNewsSection, ignoreCache: Bool = false) async throws -> [Int] {
         let endpoint: String
         switch section {
-        case .top: endpoint = "topstories"
         case .new: endpoint = "newstories"
-        case .best: endpoint = "beststories"
-        case .ask: endpoint = "askstories"
-        case .show: endpoint = "showstories"
-        case .jobs: endpoint = "jobstories"
+        case .mostUpvoted: endpoint = "beststories"
         }
         guard let url = URL(string: "\(baseURL)/\(endpoint).json") else {
             throw NetworkError.invalidURL

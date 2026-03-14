@@ -9,14 +9,24 @@ private let maxArticlesPerSection = 30
 @MainActor
 @Observable
 final class WikipediaFeedViewModel {
+    // MARK: - Featured state
     var featuredArticle: Article?
-    var mostReadArticles: [Article] = []
-    var onThisDayArticles: [Article] = []
+    var newsArticles: [Article] = []
+    var pictureOfTheDay: PictureOfTheDay?
     var randomArticles: [Article] = []
+
+    // MARK: - Search state
+    var searchResults: [Article] = []
+    var searchQuery = ""
+    var isSearching = false
+    var searchError: String?
+    private var searchOffset = 0
+    private var hasMoreSearchResults = true
+
+    // MARK: - General state
     var isLoading = false
     var isLoadingMore = false
     var errorMessage: String?
-    var onThisDayError: String?
     var randomError: String?
     var activeSection: WikipediaSection = .featured
 
@@ -25,8 +35,12 @@ final class WikipediaFeedViewModel {
 
     private var seenArticleIDs: Set<String> = []
     private var featuredDayOffset = 0
-    private var mostReadDayOffset = 0
-    private var onThisDayDayOffset = 0
+
+    struct PictureOfTheDay {
+        let imageURL: String
+        let caption: String
+        let title: String
+    }
 
     func configure(modelContext: ModelContext) {
         if recommendationEngine == nil {
@@ -41,11 +55,10 @@ final class WikipediaFeedViewModel {
         errorMessage = nil
         resetPagination()
 
-        async let featured: Void = loadFeaturedAndMostRead(ignoreCache: false)
-        async let onThisDay: Void = loadOnThisDay(ignoreCache: false)
+        async let featured: Void = loadFeatured(ignoreCache: false)
         async let random: Void = loadRandom(ignoreCache: false)
 
-        _ = await (featured, onThisDay, random)
+        _ = await (featured, random)
     }
 
     func refresh() async {
@@ -54,11 +67,10 @@ final class WikipediaFeedViewModel {
         errorMessage = nil
         resetPagination()
 
-        async let featured: Void = loadFeaturedAndMostRead(ignoreCache: true)
-        async let onThisDay: Void = loadOnThisDay(ignoreCache: true)
+        async let featured: Void = loadFeatured(ignoreCache: true)
         async let random: Void = loadRandom(ignoreCache: true)
 
-        _ = await (featured, onThisDay, random)
+        _ = await (featured, random)
     }
 
     func loadMore() async {
@@ -68,21 +80,72 @@ final class WikipediaFeedViewModel {
 
         switch activeSection {
         case .featured:
-            await loadMoreFeatured()
-        case .mostRead:
-            await loadMoreMostRead()
-        case .onThisDay:
-            await loadMoreOnThisDay()
+            break
+        case .search:
+            await loadMoreSearchResults()
         case .random:
             await loadMoreRandom()
         }
     }
 
+    // MARK: - Search
+
+    func performSearch(query: String) async {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            searchResults = []
+            searchError = nil
+            searchOffset = 0
+            hasMoreSearchResults = true
+            return
+        }
+
+        isSearching = true
+        searchError = nil
+        searchOffset = 0
+        hasMoreSearchResults = true
+        searchResults = []
+        defer { isSearching = false }
+
+        do {
+            let (summaries, nextOffset) = try await service.searchArticles(query: trimmed, limit: 10, offset: 0)
+            guard !Task.isCancelled else { return }
+            let articles = service.toArticles(from: summaries, section: .search)
+            searchResults = articles
+            searchOffset = nextOffset ?? 0
+            hasMoreSearchResults = nextOffset != nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            let message = (error as? NetworkError)?.userMessage ?? error.localizedDescription
+            logger.error("Search failed: \(message)")
+            searchError = "Search failed. Please try again."
+        }
+    }
+
+    private func loadMoreSearchResults() async {
+        guard hasMoreSearchResults, !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        do {
+            let (summaries, nextOffset) = try await service.searchArticles(
+                query: searchQuery.trimmingCharacters(in: .whitespacesAndNewlines),
+                limit: 10,
+                offset: searchOffset
+            )
+            guard !Task.isCancelled else { return }
+            let articles = service.toArticles(from: summaries, section: .search)
+            let newArticles = articles.filter { article in !searchResults.contains(where: { $0.id == article.id }) }
+            searchResults.append(contentsOf: newArticles)
+            searchOffset = nextOffset ?? searchOffset
+            hasMoreSearchResults = nextOffset != nil
+        } catch {
+            logger.error("Failed to load more search results: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Pagination helpers
+
     private func resetPagination() {
         seenArticleIDs.removeAll()
         featuredDayOffset = 0
-        mostReadDayOffset = 0
-        onThisDayDayOffset = 0
     }
 
     private func markSeen(_ articles: [Article]) {
@@ -102,68 +165,7 @@ final class WikipediaFeedViewModel {
         return result
     }
 
-    // MARK: - Load More (per section)
-
-    private func loadMoreFeatured() async {
-        guard mostReadArticles.count < maxArticlesPerSection else { return }
-        featuredDayOffset += 1
-        guard let targetDate = Calendar.current.date(byAdding: .day, value: -featuredDayOffset, to: Date()) else { return }
-        do {
-            let response = try await service.fetchFeaturedContent(date: targetDate, ignoreCache: false)
-            guard !Task.isCancelled else { return }
-
-            var newArticles: [Article] = []
-            if let tfa = response.tfa {
-                newArticles.append(contentsOf: service.toArticles(from: [tfa], section: .featured))
-            }
-            if let readArticles = response.mostread?.articles, !readArticles.isEmpty {
-                newArticles.append(contentsOf: service.toArticles(from: readArticles, section: .mostRead))
-            }
-
-            let unique = dedup(newArticles)
-            let ranked = recommendationEngine?.scoreArticles(unique) ?? unique
-            let remaining = maxArticlesPerSection - mostReadArticles.count
-            mostReadArticles.append(contentsOf: ranked.prefix(remaining))
-        } catch {
-            logger.error("Failed to load more featured content: \(error.localizedDescription)")
-        }
-    }
-
-    private func loadMoreMostRead() async {
-        guard mostReadArticles.count < maxArticlesPerSection else { return }
-        mostReadDayOffset += 1
-        guard let targetDate = Calendar.current.date(byAdding: .day, value: -mostReadDayOffset, to: Date()) else { return }
-        do {
-            let response = try await service.fetchFeaturedContent(date: targetDate, ignoreCache: false)
-            guard !Task.isCancelled else { return }
-
-            if let readArticles = response.mostread?.articles, !readArticles.isEmpty {
-                let converted = service.toArticles(from: readArticles, section: .mostRead)
-                let unique = dedup(converted)
-                let ranked = recommendationEngine?.scoreArticles(unique) ?? unique
-                let remaining = maxArticlesPerSection - mostReadArticles.count
-                mostReadArticles.append(contentsOf: ranked.prefix(remaining))
-            }
-        } catch {
-            logger.error("Failed to load more most read: \(error.localizedDescription)")
-        }
-    }
-
-    private func loadMoreOnThisDay() async {
-        guard onThisDayArticles.count < maxArticlesPerSection else { return }
-        onThisDayDayOffset += 1
-        guard let targetDate = Calendar.current.date(byAdding: .day, value: -onThisDayDayOffset, to: Date()) else { return }
-        do {
-            let events = try await service.fetchOnThisDay(date: targetDate, ignoreCache: false)
-            guard !Task.isCancelled else { return }
-            let converted = service.toArticles(from: events)
-            let unique = dedup(converted)
-            let remaining = maxArticlesPerSection - onThisDayArticles.count
-            onThisDayArticles.append(contentsOf: unique.prefix(remaining))
-        } catch {
-            logger.error("Failed to load more On This Day: \(error.localizedDescription)")
-        }
-    }
+    // MARK: - Load More Random
 
     private func loadMoreRandom() async {
         guard randomArticles.count < maxArticlesPerSection else { return }
@@ -182,7 +184,7 @@ final class WikipediaFeedViewModel {
 
     // MARK: - Initial Loaders
 
-    private func loadFeaturedAndMostRead(ignoreCache: Bool) async {
+    private func loadFeatured(ignoreCache: Bool) async {
         do {
             let response = try await service.fetchFeaturedContent(ignoreCache: ignoreCache)
             guard !Task.isCancelled else { return }
@@ -195,37 +197,21 @@ final class WikipediaFeedViewModel {
                 }
             }
 
-            if let readArticles = response.mostread?.articles, !readArticles.isEmpty {
-                let converted = service.toArticles(from: Array(readArticles.prefix(20)), section: .mostRead)
-                mostReadArticles = recommendationEngine?.scoreArticles(converted) ?? converted
-                markSeen(mostReadArticles)
-            } else {
-                let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
-                let fallback = try await service.fetchFeaturedContent(date: yesterday, ignoreCache: ignoreCache)
-                guard !Task.isCancelled else { return }
-                if let readArticles = fallback.mostread?.articles, !readArticles.isEmpty {
-                    let converted = service.toArticles(from: Array(readArticles.prefix(20)), section: .mostRead)
-                    mostReadArticles = recommendationEngine?.scoreArticles(converted) ?? converted
-                    markSeen(mostReadArticles)
+            if let news = response.news, !news.isEmpty {
+                newsArticles = service.toArticles(from: news)
+                markSeen(newsArticles)
+            }
+
+            if let image = response.image {
+                let imageURL = image.image?.source ?? image.thumbnail?.source
+                let caption = image.description?.text ?? ""
+                let title = image.title ?? ""
+                if let url = imageURL {
+                    pictureOfTheDay = PictureOfTheDay(imageURL: url, caption: caption, title: title)
                 }
             }
         } catch {
             errorMessage = (error as? NetworkError)?.userMessage ?? "Failed to load content. Please try again."
-        }
-    }
-
-    private func loadOnThisDay(ignoreCache: Bool) async {
-        do {
-            let events = try await service.fetchOnThisDay(ignoreCache: ignoreCache)
-            guard !Task.isCancelled else { return }
-            onThisDayArticles = service.toArticles(from: events)
-            markSeen(onThisDayArticles)
-            onThisDayError = nil
-        } catch {
-            guard !Task.isCancelled else { return }
-            let message = (error as? NetworkError)?.userMessage ?? error.localizedDescription
-            logger.error("Failed to load On This Day: \(message)")
-            onThisDayError = "Failed to load historical events."
         }
     }
 

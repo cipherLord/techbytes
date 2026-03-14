@@ -1,7 +1,7 @@
 import SwiftUI
 
-struct HackerNewsFeedView: View {
-    @State private var viewModel = HackerNewsFeedViewModel()
+struct LobstersFeedView: View {
+    @State private var viewModel = LobstersFeedViewModel()
     @State private var safariURL: IdentifiableURL?
     @State private var cardsAppeared = false
     @Namespace private var pillNamespace
@@ -48,7 +48,7 @@ struct HackerNewsFeedView: View {
 
             if viewModel.stories.isEmpty && !viewModel.isLoading {
                 VStack(spacing: 12) {
-                    Image(systemName: "newspaper")
+                    Image(systemName: "ladybug")
                         .font(.system(size: 36))
                         .foregroundStyle(.dustyGrey)
                     Text("No stories available")
@@ -59,7 +59,7 @@ struct HackerNewsFeedView: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 20) {
-                        feedTitle("Hacker News")
+                        feedTitle("Lobsters")
 
                         ForEach(Array(viewModel.stories.enumerated()), id: \.element.id) { index, story in
                             Button {
@@ -74,17 +74,6 @@ struct HackerNewsFeedView: View {
                             .buttonStyle(PressableCardStyle())
                             .fadeSlideIn(index: index, appeared: cardsAppeared)
                             .accessibilityLabel("\(story.title). Score \(story.score ?? 0). \(story.commentCount ?? 0) comments.")
-                            .onAppear {
-                                if index == viewModel.stories.count - 3 {
-                                    Task { await viewModel.loadMore() }
-                                }
-                            }
-                        }
-
-                        if viewModel.isLoadingMore {
-                            ProgressView()
-                                .tint(.liquidLava)
-                                .padding()
                         }
                     }
                     .padding(.horizontal, 16)
@@ -103,7 +92,7 @@ struct HackerNewsFeedView: View {
 
     private var sectionPicker: some View {
         HStack(spacing: 8) {
-            ForEach(HackerNewsSection.allCases, id: \.rawValue) { section in
+            ForEach(LobstersSection.allCases, id: \.rawValue) { section in
                 Button {
                     if viewModel.activeSection != section {
                         cardsAppeared = false
@@ -126,7 +115,7 @@ struct HackerNewsFeedView: View {
                             if viewModel.activeSection == section {
                                 Capsule()
                                     .fill(Color.liquidLava)
-                                    .matchedGeometryEffect(id: "hnActivePill", in: pillNamespace)
+                                    .matchedGeometryEffect(id: "lobstersActivePill", in: pillNamespace)
                             } else {
                                 Capsule()
                                     .fill(Color.slateGrey)

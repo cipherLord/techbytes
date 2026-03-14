@@ -8,7 +8,7 @@ final class HackerNewsFeedViewModel {
     var isLoading = false
     var isLoadingMore = false
     var errorMessage: String?
-    var activeSection: HackerNewsSection = .top
+    var activeSection: HackerNewsSection = .new
     private var currentOffset = 0
     private var cachedStoryIDs: [Int] = []
 

@@ -4,22 +4,28 @@ import SwiftData
 enum ArticleSource: String, Codable {
     case wikipedia
     case hackerNews
+    case lobsters
+    case techmeme
 }
 
 enum WikipediaSection: String, Codable, CaseIterable {
     case featured = "Featured"
-    case mostRead = "Most Read"
-    case onThisDay = "On This Day"
+    case search = "Search"
     case random = "Random"
 }
 
 enum HackerNewsSection: String, Codable, CaseIterable {
-    case top = "Top"
     case new = "New"
-    case best = "Best"
-    case ask = "Ask"
-    case show = "Show"
-    case jobs = "Jobs"
+    case mostUpvoted = "Most upvoted"
+}
+
+enum LobstersSection: String, Codable, CaseIterable {
+    case hottest = "Hottest"
+    case newest = "Newest"
+}
+
+enum TechmemeSection: String, Codable, CaseIterable {
+    case topNews = "Top News"
 }
 
 @Model
